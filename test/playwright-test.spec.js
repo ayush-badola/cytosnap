@@ -6,8 +6,8 @@ var Promise = require('bluebird');
 cytosnap.use([ 'cytoscape-dagre' ]);
 
 describe('Playwright test', function() {
+    var snap;
     this.timeout(10000);
-    let snap;
     beforeEach(async function(){
         snap = new cytosnap({
             engine: 'playwright',
@@ -18,13 +18,18 @@ describe('Playwright test', function() {
         await snap.start();
     });
     afterEach(async function(){ // teardown
-        await snap.stop();
-        snap = null;
+        if (snap) {
+            await snap.stop();
+            snap = null;
+          }
       });
 
 
-      it('should save png image', function(done){
-        snap.shot({
+      it('should save png image', async function(){
+        const startTime = Date.now();
+        const initialMemory = process.memoryUsage().heapUsed / 1024 / 1024;
+        try{
+         await snap.shot({
             elements: [
                 {
                     data: {id: 'foo'}
@@ -43,15 +48,24 @@ describe('Playwright test', function() {
         }).then(function (img){
             expect(img).to.exist;
             return img;
-        }).then(function (img){
-            return new Promise(function (resolve, reject){
+        }).then(async function (img){
+            return await new Promise(function (resolve, reject){
                 var out = require('fs').createWriteStream('./test/playwrightimg.png');
                 img.pipe(out);
-                out.on('finish', resolve);
-                out.on('error', reject);
-            })
-        }).then(() => {
-            done();
-        }).catch(done);
+                out.on('finish', function(){
+                    const executionTime = Date.now() - startTime;
+                    const finalMemory = process.memoryUsage().heapUsed / 1024 / 1024;
+                    const memoryUsed = finalMemory - initialMemory;
+                    console.log(`Playwright rendering time: ${executionTime} ms`);
+                    console.log(`Playwright memory used: ${memoryUsed.toFixed(2)} MB`);
+                    resolve();
+                });
+            });
+            
+        })
+    }catch(err){
+        console.error('Error in test: ', err);
+        throw err;
+    }
       });
 });

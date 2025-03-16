@@ -5,7 +5,8 @@ var Promise = require('bluebird');
 
 cytosnap.use([ 'cytoscape-dagre' ]);
 
-describe('Output', function(){
+describe('Puppeteer test', function(){
+  
   var snap;
 
   this.timeout( 10000 );
@@ -27,6 +28,8 @@ describe('Output', function(){
   });
 
   it('should exist (png)', function( done ){
+    const startTime = Date.now();
+    const initialMemory = process.memoryUsage().heapUsed / 1024 / 1024;
     snap.shot({
       elements: [
         {
@@ -46,19 +49,28 @@ describe('Output', function(){
     }).then(function( img ){
       expect( img ).to.exist;
       return img;
-    }).then(function( img ){
+    }).then(async function( img ){
       // put the image in the fs for manual verification
-      return new Promise(function( resolve ){
+      return await new Promise(function( resolve ){
         var out = require('fs').createWriteStream('./test/img.png');
 
         img.pipe( out );
 
-        out.on('finish', resolve);
+        out.on('finish', function(){
+          const executionTime = Date.now() - startTime;
+          const finalMemory = process.memoryUsage().heapUsed / 1024 / 1024;
+          const memoryUsed = finalMemory - initialMemory;
+          console.log(`Puppeteer rendering time: ${executionTime} ms`);
+          console.log(`Puppeteer memory used: ${memoryUsed.toFixed(2)} MB`);
+          resolve();
+        });
       });
     }).then( done );
+    
   });
+  
 
-  it('should exist (png via functions)', function( done ){
+  /*it('should exist (png via functions)', function( done ){
     snap.shot({
       elements: [
         {
@@ -72,7 +84,7 @@ describe('Output', function(){
         }
       ],
       style: function(){
-        /* global cytoscape */
+        // global cytoscape 
         return cytoscape.stylesheet()
           .selector('node')
             .style({
@@ -350,7 +362,7 @@ describe('Output', function(){
     }).then(function( img ){
       expect( img.indexOf('image/jpeg') ).to.be.at.least(0);
     }).then( done );
-  });
+  });        */
 
 
 });

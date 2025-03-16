@@ -30,12 +30,15 @@
     "bluebird": "^3.4.0",
     "browserify": "^16.2.3",
     "cytoscape": "^3.2.19",
+    "cytosnap": "^3.1.0",
     "handlebars": "^4.0.12",
-    "puppeteer": "^1.9.0"
+    "playwright": "^1.51.0",
+    "puppeteer": "^1.9.0",
+    "skia-canvas": "^2.0.2"
   },
   "devDependencies": {
     "chai": "^3.5.0",
-    "cytoscape-dagre": "^2.2.2",
+    "cytoscape-dagre": "^2.5.0",
     "eslint": "^5.8.0",
     "mocha": "^5.2.0"
   },

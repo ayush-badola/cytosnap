@@ -7,6 +7,7 @@ let path = require('path');
 let os = require('os');
 let puppeteer = require('puppeteer');
 let playwright = require('playwright');
+let skiaCanvas = require('skia-canvas');
 let typeofFn = typeof function(){};
 let isFunction = x => typeof x === typeofFn;
 let Handlebars = require('handlebars');
@@ -73,15 +74,15 @@ let Cytosnap = function( opts = {} ){
       args: opts.playwright?.args,
       headless: true
     },
+    skia: {},
   }, opts );
 
   // options to pass to puppeteer.launch()
-  /*this.options.puppeteer = Object.assign({
-    // defaults
-    args: opts.args, // backwards compat
-    headless: true
-  }, opts.puppeteer);*/
-
+/*this.options.puppeteer = Object.assign({
+  // defaults
+  args: opts.args, // backwards compat
+  headless: true
+}, opts.puppeteer);*/
   this.running = false;
 };
 
@@ -120,6 +121,9 @@ proto.start = function( next ){
     else if(snap.options.engine == 'playwright'){
       return playwright.chromium.launch(snap.options.playwright);
     }
+    else if(snap.options.engine == 'skia'){
+      return null;
+    }
     else{
       throw new Error ('Unsupported Engine' + snap.options.engine);
     }
@@ -134,6 +138,7 @@ proto.stop = function( next ){
   let snap = this;
 
   return Promise.try(function(){
+    if(snap.browser)
     snap.browser.close();
   }).then(function(){
     snap.running = false;
@@ -163,6 +168,76 @@ proto.shot = function( opts, next ){
     opts.quality = 0; // most compression
   }
 
+
+  if( snap.options.engine === 'skia' ) {
+    return Promise.try(async function() {
+      const canvas = new skiaCanvas.Canvas(opts.width, opts.height);
+      const ctx = canvas.getContext("2d");
+      // Set background
+      ctx.fillStyle = opts.background;
+      ctx.fillRect(0, 0, opts.width, opts.height);
+
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      opts.elements.forEach(el => {
+        if (el.group === 'nodes'&& el.position) {
+          minX = Math.min(minX, el.position.x);
+          minY = Math.min(minY, el.position.y);
+          maxX = Math.max(maxX, el.position.x);
+          maxY = Math.max(maxY, el.position.y);
+        }
+      });
+
+      // Calculate center of the bounding box
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+
+      ctx.translate(opts.width / 2, opts.height / 2);
+
+      ctx.scale(4.4, 4.4);
+
+      ctx.translate(-centerX, -centerY);
+
+      //Draw Nodes
+      opts.elements.forEach(el => {
+        if (el.group === 'nodes') {
+          ctx.fillStyle = el.data.color || "black"; // Default color if not specified
+          ctx.beginPath();
+          ctx.arc(el.position.x, el.position.y, 10, 0, 2 * Math.PI); // Circle for node
+          ctx.fill();
+        }
+      });
+
+      // Draw edges
+      opts.elements.forEach(el => {
+        if (el.group === 'edges') {
+          const sourceNode = opts.elements.find(n => n.data.id === el.data.source);
+          const targetNode = opts.elements.find(n => n.data.id === el.data.target);
+
+          if (sourceNode && targetNode) {
+            ctx.beginPath();
+            ctx.moveTo(sourceNode.position.x, sourceNode.position.y);
+            ctx.lineTo(targetNode.position.x, targetNode.position.y);
+            ctx.stroke();
+          }
+        }
+      });
+
+      let buffer = await canvas.toBuffer(opts.format, { quality: opts.quality });
+      const base64Image = buffer.toString("base64");
+
+      switch (opts.resolvesTo) {
+        case 'base64uri': return `data:image/${opts.format};base64,${base64Image}`;
+        case 'base64': return base64Image;
+        case 'stream': return getStream(base64Image).pipe(base64.decode());
+        default: throw new Error("Invalid resolve type: " + opts.resolvesTo);
+      }
+    })
+    .then(callbackifyValue(next))
+    .catch(callbackifyError(next));
+  }
+
+
   return Promise.try(function(){
     return writeExtensionsList();
   }).then(function(){
@@ -189,7 +264,7 @@ proto.shot = function( opts, next ){
         return uri;
       }
     };
-
+    if(snap.options.engine != 'skia')
     return page.goto( 'file://' + patchUri(path.join(__dirname, './browser/index.html')) );
   }).then(function(){
     if( !isFunction( opts.style ) ){ return Promise.resolve(); }
@@ -205,16 +280,16 @@ proto.shot = function( opts, next ){
     return page.evaluate( js );
   }).then(function(){
     let js = 'window.options = ( ' + JSON.stringify(opts) + ' )';
-
+    if(snap.options.engine != 'skia')
     return page.evaluate( js );
   }).then(function(){
     let js = 'document.body.style.setProperty("background", "' + opts.background + '")';
-
+    if(snap.options.engine != 'skia')
     return page.evaluate( js );
   }).then(function(){
-
+    if(snap.options.engine != 'skia')
     return page.evaluate(function(){
-      /* global window, options, cy, layoutFunction, styleFunction */
+     /*global window, options, cy, layoutFunction, styleFunction */
       if( window.layoutFunction ){ options.layout = layoutFunction(); }
 
       if( window.styleFunction ){ options.style = styleFunction(); }
@@ -223,11 +298,12 @@ proto.shot = function( opts, next ){
 
       cy.add( options.elements );
 
-      let layoutDone = cy.promiseOn('layoutstop');
+      return new Promise(function(resolve) {
+        cy.makeLayout( options.layout ).run();
+        cy.one('layoutstop', resolve);
+        setTimeout(resolve, 0);
+  });
 
-      cy.makeLayout( options.layout ).run(); // n.b. makeLayout used in case cytoscape@2 support is desired
-
-      return layoutDone;
     });
   }).then(function(){
     if( opts.resolveTo === 'json' ){ return null; } // can skip in json case
@@ -237,6 +313,7 @@ proto.shot = function( opts, next ){
     };
     if(opts.format == 'jpg'){screenshotoptions.quality = opts.quality}
     if(snap.options.engine === 'playwright'){delete screenshotoptions.encoding;}
+    if(snap.options.engine != 'skia')
     return page.screenshot(screenshotoptions);
   }).then(function( screenshotResult ){
 
@@ -266,6 +343,7 @@ proto.shot = function( opts, next ){
         throw new Error('Invalid resolve type specified: ' + opts.resolvesTo);
     }
   }).then(function( img ){
+    if(snap.options.engine != 'skia')
     return page.close().then(function(){ return img; });
   }).then( callbackifyValue(next) ).catch( callbackifyError(next) );
 };
