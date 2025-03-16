@@ -70,7 +70,7 @@ describe('Puppeteer test', function(){
   });
   
 
-  /*it('should exist (png via functions)', function( done ){
+  it('should exist (png via functions)', function( done ){
     snap.shot({
       elements: [
         {
@@ -362,7 +362,7 @@ describe('Puppeteer test', function(){
     }).then(function( img ){
       expect( img.indexOf('image/jpeg') ).to.be.at.least(0);
     }).then( done );
-  });        */
+  });        
 
 
 });
